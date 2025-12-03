@@ -71,9 +71,13 @@ if (USE_GITHUB_DATA === "true") {
     let data = "";
 
     console.log(`statusCode: ${res.statusCode}`);
-    if (res.statusCode !== 200) {
-      throw new Error(ERR.requestFailed);
-    }
+   if (res.statusCode !== 200) {
+  console.warn(`Warning: Medium fetch failed with status ${res.statusCode}. Continuing without Medium posts.`);
+
+  const fs = require('fs');
+  fs.writeFileSync('public/medium.json', JSON.stringify([]), 'utf8');
+}
+
 
     res.on("data", d => {
       data += d;
