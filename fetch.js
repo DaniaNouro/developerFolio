@@ -1,6 +1,5 @@
-fs = require("fs");
+const fs = require("fs");
 const https = require("https");
-process = require("process");
 require("dotenv").config();
 
 const GITHUB_TOKEN = process.env.REACT_APP_GITHUB_TOKEN;
@@ -13,50 +12,54 @@ const ERR = {
     "Github Username was found to be undefined. Please set all relevant environment variables.",
   requestFailed:
     "The request to GitHub didn't succeed. Check if GitHub token in your .env file is correct.",
-  requestFailedMediumش:
-    "The request to Medium didn't succeed. Check if Medium username in your .env file is correct."
+  requestMediumFailed:
+    "The request to Medium didn't succeed. Continuing without Medium posts."
 };
+
+// GitHub fetch
 if (USE_GITHUB_DATA === "true") {
-  if (GITHUB_USERNAME === undefined) {
+  if (!GITHUB_USERNAME) {
     throw new Error(ERR.noUserName);
   }
 
   console.log(`Fetching profile data for ${GITHUB_USERNAME}`);
-  var data = JSON.stringify({
+
+  const data = JSON.stringify({
     query: `
-{
-  user(login:"${GITHUB_USERNAME}") { 
-    name
-    bio
-    avatarUrl
-    location
-    pinnedItems(first: 6, types: [REPOSITORY]) {
-      totalCount
-      edges {
-          node {
-            ... on Repository {
-              name
-              description
-              forkCount
-              stargazers {
-                totalCount
-              }
-              url
-              id
-              diskUsage
-              primaryLanguage {
-                name
-                color
+    {
+      user(login:"${GITHUB_USERNAME}") { 
+        name
+        bio
+        avatarUrl
+        location
+        pinnedItems(first: 6, types: [REPOSITORY]) {
+          totalCount
+          edges {
+              node {
+                ... on Repository {
+                  name
+                  description
+                  forkCount
+                  stargazers {
+                    totalCount
+                  }
+                  url
+                  id
+                  diskUsage
+                  primaryLanguage {
+                    name
+                    color
+                  }
+                }
               }
             }
           }
         }
-      }
     }
-}
-`
+    `
   });
-  const default_options = {
+
+  const options = {
     hostname: "api.github.com",
     path: "/graphql",
     port: 443,
@@ -67,23 +70,17 @@ if (USE_GITHUB_DATA === "true") {
     }
   };
 
-  const req = https.request(default_options, res => {
-    let data = "";
+  const req = https.request(options, res => {
+    let profileData = "";
 
-    console.log(`statusCode: ${res.statusCode}`);
-   if (res.statusCode !== 200) {
-  console.warn(`Warning: Medium fetch failed with status ${res.statusCode}. Continuing without Medium posts.`);
-
-  const fs = require('fs');
-  fs.writeFileSync('public/medium.json', JSON.stringify([]), 'utf8');
-}
-
+    console.log(`GitHub statusCode: ${res.statusCode}`);
 
     res.on("data", d => {
-      data += d;
+      profileData += d;
     });
+
     res.on("end", () => {
-      fs.writeFile("./public/profile.json", data, function (err) {
+      fs.writeFile("./public/profile.json", profileData, err => {
         if (err) return console.log(err);
         console.log("saved file to public/profile.json");
       });
@@ -91,15 +88,17 @@ if (USE_GITHUB_DATA === "true") {
   });
 
   req.on("error", error => {
-    throw error;
+    console.warn("GitHub fetch error:", error);
   });
 
   req.write(data);
   req.end();
 }
 
- if (MEDIUM_USERNAME !== undefined && MEDIUM_USERNAME.trim() !== "") {
+// Medium fetch
+if (MEDIUM_USERNAME && MEDIUM_USERNAME.trim() !== "") {
   console.log(`Fetching Medium blogs data for ${MEDIUM_USERNAME}`);
+
   const options = {
     hostname: "api.rss2json.com",
     path: `/v1/api.json?rss_url=https://medium.com/feed/@${MEDIUM_USERNAME}`,
@@ -110,25 +109,33 @@ if (USE_GITHUB_DATA === "true") {
   const req = https.request(options, res => {
     let mediumData = "";
 
-    console.log(`statusCode: ${res.statusCode}`);
-    if (res.statusCode !== 200) {
-      throw new Error(ERR.requestMediumFailed);
-    }
+    console.log(`Medium statusCode: ${res.statusCode}`);
 
     res.on("data", d => {
       mediumData += d;
     });
+
     res.on("end", () => {
-      fs.writeFile("./public/blogs.json", mediumData, function (err) {
-        if (err) return console.log(err);
-        console.log("saved file to public/blogs.json");
-      });
+      if (res.statusCode !== 200) {
+        console.warn(`${ERR.requestMediumFailed} (status ${res.statusCode})`);
+        // fallback فارغ
+        fs.writeFileSync("public/blogs.json", JSON.stringify([]), "utf8");
+      } else {
+        fs.writeFile("public/blogs.json", mediumData, err => {
+          if (err) return console.log(err);
+          console.log("saved file to public/blogs.json");
+        });
+      }
     });
   });
 
   req.on("error", error => {
-    throw error;
+    console.warn("Medium fetch error:", error);
+    fs.writeFileSync("public/blogs.json", JSON.stringify([]), "utf8");
   });
 
   req.end();
+} else {
+  console.log("No MEDIUM_USERNAME provided — skipping Medium fetch.");
+  fs.writeFileSync("public/blogs.json", JSON.stringify([]), "utf8");
 }
